@@ -1,6 +1,9 @@
-//! The service that returns current time in Moscow in format YYYY-MM-DD
-//! HH:MM:SS.
-
+//! This crate provides a simple Actix web server that exposes an endpoint for
+//! getting the current time in Moscow. It also integrates with the
+//! `actix-web-prom` crate to expose Prometheus metrics.
+//!
+//! For more information, see the
+//! [README.md](https://github.com/yourusername/yourrepository/README.md) file.
 #![warn(
     clippy::all,
     clippy::style,
@@ -15,7 +18,8 @@
     clippy::similar_names
 )]
 
-use actix_web::{get, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
+use actix_web_prom::PrometheusMetricsBuilder;
 use chrono::{DateTime, Utc};
 use chrono_tz::{Europe::Moscow, Tz};
 use serde::{Serialize, Serializer};
@@ -49,15 +53,33 @@ fn serialize_datetime<S: Serializer>(
 /// Route for getting the current time in Moscow.
 #[get("/")]
 async fn moscow_time() -> impl Responder {
+    println!("Received request for Moscow time");
     HttpResponse::Ok().json(CurrentTimeResp::new())
+}
+
+/// Route for health check.
+async fn health() -> HttpResponse {
+    HttpResponse::Ok().finish()
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| App::new().service(moscow_time))
-        .bind(("0.0.0.0", 80))?
-        .run()
-        .await
+    println!("Starting server at port {}", 80);
+
+    let prometheus = PrometheusMetricsBuilder::new("actix")
+        .endpoint("/metrics")
+        .build()
+        .unwrap();
+
+    HttpServer::new(move || {
+        App::new()
+            .wrap(prometheus.clone())
+            .service(moscow_time)
+            .service(web::resource("/health").to(health))
+    })
+    .bind(("0.0.0.0", 80))?
+    .run()
+    .await
 }
 
 #[cfg(test)]
